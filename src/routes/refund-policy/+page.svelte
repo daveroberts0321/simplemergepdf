@@ -16,7 +16,7 @@
 	<div class="prose prose-slate prose-lg mx-auto max-w-3xl prose-headings:tracking-tight">
 
 		<h2>Overview</h2>
-		<p>SimpleMergePDF charges a flat fee of <strong>$2.99 per merge operation</strong>. Because this is a digital service that is delivered immediately upon payment, we handle refunds on a case-by-case basis as described below.</p>
+		<p>SimpleMergePDF charges a flat fee of <strong>$3.99 per merge operation</strong>. Because this is a digital service that is delivered immediately upon payment, we handle refunds on a case-by-case basis as described below.</p>
 
 		<h2>When We Issue Refunds</h2>
 		<p>We will issue a <strong>full refund</strong> in the following situations:</p>

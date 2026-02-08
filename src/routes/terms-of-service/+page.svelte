@@ -19,7 +19,7 @@
 		<p>By using SimpleMergePDF ("the Service"), you agree to these Terms of Service. If you do not agree to these terms, please do not use the Service.</p>
 
 		<h2>2. Description of Service</h2>
-		<p>SimpleMergePDF provides an online PDF merging service. Users can upload 2 or more PDF files and combine them into a single PDF document for a flat fee of $2.99 per merge operation.</p>
+		<p>SimpleMergePDF provides an online PDF merging service. Users can upload 2 or more PDF files and combine them into a single PDF document for a flat fee of $3.99 per merge operation.</p>
 
 		<h2>3. No Account Required</h2>
 		<p>SimpleMergePDF does not require you to create an account. We collect only the minimum information necessary to process your merge: your PDF files and your email address (for the download link only).</p>
@@ -27,7 +27,7 @@
 		<h2>4. Payment</h2>
 		<ul>
 			<li>All payments are processed securely through Stripe.</li>
-			<li>The fee for each merge operation is $2.99, charged as a one-time payment.</li>
+			<li>The fee for each merge operation is $3.99, charged as a one-time payment.</li>
 			<li>There are no subscriptions, recurring charges, or hidden fees.</li>
 			<li>By submitting payment, you authorize us to charge the specified amount to your payment method.</li>
 		</ul>
@@ -62,7 +62,7 @@
 		<p>SimpleMergePDF is provided "as is" without warranties of any kind, either express or implied. To the maximum extent permitted by law:</p>
 		<ul>
 			<li>We are not liable for any indirect, incidental, or consequential damages arising from your use of the Service.</li>
-			<li>Our total liability for any claim related to the Service is limited to the amount you paid for the specific transaction in question ($2.99).</li>
+			<li>Our total liability for any claim related to the Service is limited to the amount you paid for the specific transaction in question ($3.99).</li>
 			<li>We are not responsible for the content of documents you choose to merge.</li>
 		</ul>
 

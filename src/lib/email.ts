@@ -82,7 +82,7 @@ export async function sendConfirmationEmail(
 					</tr>
 					<tr>
 						<td style="padding: 8px 0; color: #64748b; font-size: 14px;">Amount Paid:</td>
-						<td style="padding: 8px 0; color: #0f172a; font-size: 14px; text-align: right;">$2.99</td>
+						<td style="padding: 8px 0; color: #0f172a; font-size: 14px; text-align: right;">$3.99</td>
 					</tr>
 				</table>
 			</div>
@@ -123,7 +123,7 @@ ${downloadLink}
 
 Transaction Details:
 - Service: PDF Merge
-- Amount Paid: $2.99
+- Amount Paid: $3.99
 
 Privacy Guarantee: Your files have been permanently deleted from our servers. We do not store any documents or personal information after processing.
 
