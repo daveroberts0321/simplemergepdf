@@ -5,7 +5,6 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" type="image/svg+xml" href="/favicon2.svg" />
 	<link rel="preconnect" href="https://fonts.googleapis.com" />
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
 	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -14,12 +13,8 @@
 <!-- Header nav with logo and CTA -->
 <header class="sticky top-0 z-50 border-b border-slate-200/60 bg-white/80 backdrop-blur-lg">
 	<div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-		<a href="/" class="flex items-center gap-2 text-xl font-extrabold tracking-tight text-purple-600">
-			<!-- PDF merge icon -->
-			<svg class="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-			</svg>
-			<span>SimpleMergePDF</span>
+		<a href="/" class="flex items-center">
+			<img src="/logo.png" alt="SimpleMergePDF Logo" class="h-12" />
 		</a>
 		<nav class="flex items-center gap-6">
 			<a href="/#merge-pdf" class="rounded-lg bg-purple-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-purple-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600">
@@ -40,12 +35,7 @@
 		<div class="mb-8 grid gap-8 md:grid-cols-3">
 			<!-- Brand -->
 			<div>
-				<div class="mb-2 flex items-center gap-2 text-xl font-extrabold tracking-tight text-purple-400">
-					<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-					</svg>
-					<span>SimpleMergePDF</span>
-				</div>
+				<img src="/logo.png" alt="SimpleMergePDF Logo" class="mb-3 h-16" />
 				<p class="text-sm leading-relaxed">Merge PDFs without the hassle. No subscription, no tracking, no BS.</p>
 			</div>
 			<!-- Contact -->

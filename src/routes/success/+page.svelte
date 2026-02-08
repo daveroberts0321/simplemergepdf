@@ -1,4 +1,4 @@
-<!-- success/+page.svelte: payment confirmation page shown after successful Stripe checkout -->
+<!-- success/+page.svelte: fallback page shown when Stripe redirects (e.g. 3D Secure) -->
 <script lang="ts">
 	let { data } = $props();
 </script>
@@ -21,8 +21,11 @@
 
 		<!-- Confirmation details -->
 		<p class="mb-6 text-base leading-relaxed text-slate-600">
-			Your PDFs have been merged successfully.
-			A download link has been sent to <span class="font-semibold text-slate-800">{data.senderEmail}</span>.
+			Your payment was successful. To merge and download your PDFs, please return to the home page and re-upload your files — since your browser was redirected, the files need to be selected again.
+		</p>
+
+		<p class="mb-6 text-sm text-slate-500">
+			A confirmation was sent to <span class="font-semibold text-slate-800">{data.senderEmail}</span>.
 		</p>
 
 		<!-- Privacy info box -->
@@ -31,7 +34,7 @@
 				<svg class="mt-0.5 h-5 w-5 shrink-0 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
 				</svg>
-				<span class="text-left">Your documents have been permanently deleted from our servers. We do not store any files or personal information.</span>
+				<span class="text-left">If you experience any issues, please contact support for assistance. Full refund guaranteed if the merge cannot be completed.</span>
 			</div>
 		</div>
 
@@ -40,7 +43,7 @@
 			href="/"
 			class="inline-block rounded-xl bg-purple-600 px-8 py-3 text-lg font-bold text-white shadow-lg transition hover:bg-purple-500 hover:shadow-xl"
 		>
-			Merge More PDFs
+			Merge PDFs
 		</a>
 	</div>
 </div>

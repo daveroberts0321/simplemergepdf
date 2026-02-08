@@ -2,6 +2,7 @@
 <script lang="ts">
 	// Imports for file conversion, Stripe checkout, and Svelte lifecycle
 	import { convertImageToPdf } from '$lib/convert-image-to-pdf';
+	import { countPagesPerFile, mergePdfs, MAX_TOTAL_PAGES } from '$lib/merge-pdfs';
 	import { loadStripe, type Stripe, type StripeElements } from '@stripe/stripe-js';
 	import { tick } from 'svelte';
 
@@ -14,6 +15,12 @@
 	let fileInput: HTMLInputElement | undefined = $state();
 	let senderEmail = $state('');
 
+	// Page count & file size state
+	let filePageCounts: number[] = $state([]);
+	let totalPages: number = $state(0);
+	let totalFileSize: number = $state(0);
+	let countingPages: boolean = $state(false);
+
 	// Payment flow state
 	let showPayment = $state(false);
 	let processing = $state(false);
@@ -21,6 +28,45 @@
 	let stripe: Stripe | null = $state(null);
 	let elements: StripeElements | null = $state(null);
 	let paymentElementContainer: HTMLDivElement | undefined = $state();
+
+	// Merge / download state
+	let merging: boolean = $state(false);
+	let mergedPdfUrl: string = $state('');
+	let mergeComplete: boolean = $state(false);
+
+	// formatFileSize: converts bytes to human-readable string
+	function formatFileSize(bytes: number): string {
+		if (bytes < 1024) return bytes + ' B';
+		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+	}
+
+	// updateStats: counts pages per file, computes totals, validates against MAX_TOTAL_PAGES
+	async function updateStats() {
+		if (files.length === 0) {
+			filePageCounts = [];
+			totalPages = 0;
+			totalFileSize = 0;
+			return;
+		}
+		countingPages = true;
+		totalFileSize = files.reduce((sum, f) => sum + f.size, 0);
+		try {
+			filePageCounts = await countPagesPerFile(files);
+			totalPages = filePageCounts.reduce((sum, c) => sum + c, 0);
+			if (totalPages > MAX_TOTAL_PAGES) {
+				formError = `Total page count (${totalPages}) exceeds the maximum of ${MAX_TOTAL_PAGES} pages. Please remove some files.`;
+			} else {
+				if (formError.includes('exceeds the maximum')) {
+					formError = '';
+				}
+			}
+		} catch {
+			formError = 'Failed to count pages in one or more files. Please check your PDFs.';
+		} finally {
+			countingPages = false;
+		}
+	}
 
 	// handleFiles: accepts a FileList or File array, converts images to PDF, appends to files state
 	async function handleFiles(fileList: FileList | File[] | null) {
@@ -45,11 +91,14 @@
 		} finally {
 			converting = false;
 		}
+
+		await updateStats();
 	}
 
 	// removeFile: removes a file from the upload list by index
 	function removeFile(index: number) {
 		files = files.filter((_, i) => i !== index);
+		updateStats();
 	}
 
 	// continueToPayment: validates form, creates PaymentIntent, mounts Stripe Payment Element
@@ -59,6 +108,10 @@
 		// Validate all required fields before proceeding
 		if (files.length < 2) { formError = 'Please upload at least two PDF files to merge.'; return; }
 		if (!senderEmail.trim()) { formError = 'Please enter your email address.'; return; }
+		if (totalPages > MAX_TOTAL_PAGES) {
+			formError = `Total page count (${totalPages}) exceeds the maximum of ${MAX_TOTAL_PAGES} pages. Please remove some files.`;
+			return;
+		}
 
 		processing = true;
 		try {
@@ -68,7 +121,8 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					senderEmail: senderEmail.trim(),
-					fileCount: files.length
+					fileCount: files.length,
+					totalPages
 				})
 			});
 
@@ -105,25 +159,77 @@
 		}
 	}
 
-	// handlePayment: confirms the payment with Stripe and redirects to success page on completion
+	// handlePayment: confirms payment without redirect, then merges PDFs client-side
 	async function handlePayment() {
 		if (!stripe || !elements) return;
 
 		processing = true;
 		formError = '';
 
-		// confirmPayment redirects to return_url on success; only returns here on error
-		const { error } = await stripe.confirmPayment({
+		// Use redirect: 'if_required' to stay on the page after successful payment
+		const { error, paymentIntent } = await stripe.confirmPayment({
 			elements,
 			confirmParams: {
 				return_url: `${window.location.origin}/success`
-			}
+			},
+			redirect: 'if_required'
 		});
 
 		if (error) {
 			formError = error.message || 'Payment failed. Please try again.';
+			processing = false;
+			return;
 		}
+
+		// Payment succeeded - now merge PDFs client-side
+		if (paymentIntent && paymentIntent.status === 'succeeded') {
+			processing = false;
+			merging = true;
+			try {
+				const mergedBlob = await mergePdfs(files);
+				mergedPdfUrl = URL.createObjectURL(mergedBlob);
+				mergeComplete = true;
+			} catch {
+				formError = 'Payment succeeded but PDF merge failed. Please contact support.';
+			} finally {
+				merging = false;
+			}
+		} else {
+			processing = false;
+		}
+	}
+
+	// downloadMergedPdf: triggers download of the merged PDF file
+	function downloadMergedPdf() {
+		if (!mergedPdfUrl) return;
+		const a = document.createElement('a');
+		a.href = mergedPdfUrl;
+		a.download = 'merged.pdf';
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+	}
+
+	// startOver: resets all state to initial values
+	function startOver() {
+		if (mergedPdfUrl) {
+			URL.revokeObjectURL(mergedPdfUrl);
+		}
+		files = [];
+		converting = false;
+		senderEmail = '';
+		filePageCounts = [];
+		totalPages = 0;
+		totalFileSize = 0;
+		countingPages = false;
+		showPayment = false;
 		processing = false;
+		formError = '';
+		stripe = null;
+		elements = null;
+		merging = false;
+		mergedPdfUrl = '';
+		mergeComplete = false;
 	}
 
 	// goBack: resets payment state so user can edit form fields
@@ -244,10 +350,55 @@
 				</div>
 			{/if}
 
-			{#if !showPayment}
+			{#if mergeComplete}
+				<!-- Merge complete: download section -->
+				<div class="text-center">
+					<div class="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100">
+						<svg class="h-10 w-10 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+						</svg>
+					</div>
+					<h3 class="mb-2 text-xl font-bold text-slate-900">Your PDF is Ready!</h3>
+					<p class="mb-2 text-sm text-slate-500">
+						{files.length} file{files.length === 1 ? '' : 's'} merged successfully ({totalPages} pages total).
+					</p>
+					<p class="mb-8 text-xs text-slate-400">Your merged PDF is ready for download.</p>
+
+					<button
+						onclick={downloadMergedPdf}
+						class="mb-4 w-full rounded-xl bg-emerald-600 py-4 text-lg font-bold text-white shadow-lg transition hover:bg-emerald-500 hover:shadow-xl active:scale-[0.98]"
+					>
+						<span class="inline-flex items-center gap-2">
+							<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+							</svg>
+							Download Merged PDF
+						</span>
+					</button>
+
+					<button
+						onclick={startOver}
+						class="w-full text-center text-sm text-slate-500 transition hover:text-indigo-600"
+					>
+						Merge more PDFs
+					</button>
+				</div>
+
+			{:else if merging}
+				<!-- Merging in progress -->
+				<div class="py-12 text-center">
+					<svg class="mx-auto mb-4 h-12 w-12 animate-spin text-purple-600" fill="none" viewBox="0 0 24 24">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+					</svg>
+					<h3 class="mb-2 text-lg font-semibold text-slate-900">Merging Your PDFs...</h3>
+					<p class="text-sm text-slate-500">This may take a moment depending on file size.</p>
+				</div>
+
+			{:else if !showPayment}
 				<!-- File upload dropzone -->
 				<div class="mb-8">
-					<label for="file-upload" class="mb-2 block text-sm font-semibold text-slate-700">Upload PDF Files (2 or more)</label>
+					<label for="file-upload" class="mb-2 block text-sm font-semibold text-slate-700">Upload PDF Files <span class="font-normal text-slate-400">(2 or more, up to {MAX_TOTAL_PAGES} pages)</span></label>
 					<div
 						class="group cursor-pointer rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 p-8 text-center transition hover:border-purple-400 hover:bg-purple-50/30"
 						role="button"
@@ -261,7 +412,7 @@
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
 						</svg>
 						<p class="font-medium text-slate-700">Click to upload or drag and drop</p>
-						<p class="mt-1 text-xs text-slate-400">PDF files only. Upload 2 or more files to merge.</p>
+						<p class="mt-1 text-xs text-slate-400">PDF files only. 2+ files, up to {MAX_TOTAL_PAGES} pages total.</p>
 						<input
 							bind:this={fileInput}
 							id="file-upload"
@@ -284,12 +435,27 @@
 						</div>
 					{/if}
 
+					<!-- Counting pages spinner -->
+					{#if countingPages}
+						<div class="mt-3 flex items-center gap-2 text-sm text-purple-600">
+							<svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+							</svg>
+							Counting pages...
+						</div>
+					{/if}
+
 					<!-- Uploaded file list -->
 					{#if files.length > 0}
 						<ul class="mt-3 space-y-2">
 							{#each files as file, index (index)}
 								<li class="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-2.5 text-sm">
 									<span class="truncate text-slate-700">{file.name}</span>
+									<span class="ml-2 flex shrink-0 items-center gap-3">
+										<span class="text-xs text-slate-400">
+											{formatFileSize(file.size)}{#if filePageCounts[index] != null} &middot; {filePageCounts[index]} pg{filePageCounts[index] === 1 ? '' : 's'}{/if}
+										</span>
 									<button
 										type="button"
 										class="ml-3 shrink-0 text-slate-400 transition hover:text-red-500"
@@ -300,14 +466,43 @@
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
 										</svg>
 									</button>
+									</span>
 								</li>
 							{/each}
 						</ul>
 					{/if}
 
-					<p class="mt-3 text-xs text-slate-500">
-						<span class="font-medium">{files.length}</span> file{files.length === 1 ? '' : 's'} selected. Files will be merged in the order shown.
-					</p>
+					<!-- Running totals summary -->
+					{#if files.length > 0}
+						<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
+							<span><span class="font-semibold text-slate-800">{files.length}</span> file{files.length === 1 ? '' : 's'}</span>
+							<span class="text-slate-300">|</span>
+							<span><span class="font-semibold text-slate-800">{totalPages}</span> / {MAX_TOTAL_PAGES} pages</span>
+							<span class="text-slate-300">|</span>
+							<span><span class="font-semibold text-slate-800">{formatFileSize(totalFileSize)}</span> total</span>
+						</div>
+					{:else}
+						<p class="mt-3 text-xs text-slate-500">
+							No files selected. Max {MAX_TOTAL_PAGES} pages per merge.
+						</p>
+					{/if}
+
+					<!-- Page limit warning -->
+					{#if totalPages > MAX_TOTAL_PAGES}
+						<div class="mt-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+							<svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+							</svg>
+							<span>Page limit exceeded: {totalPages} / {MAX_TOTAL_PAGES} pages. Please remove some files.</span>
+						</div>
+					{:else if totalPages > MAX_TOTAL_PAGES * 0.8 && totalPages > 0}
+						<div class="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
+							<svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+							</svg>
+							<span>Approaching page limit: {totalPages} / {MAX_TOTAL_PAGES} pages.</span>
+						</div>
+					{/if}
 				</div>
 
 				<!-- Sender email input -->
@@ -335,7 +530,7 @@
 				<!-- Continue to payment button: validates form and creates PaymentIntent -->
 				<button
 					onclick={continueToPayment}
-					disabled={processing}
+					disabled={processing || totalPages > MAX_TOTAL_PAGES || countingPages}
 					class="w-full rounded-xl bg-indigo-600 py-4 text-lg font-bold text-white shadow-lg transition hover:bg-indigo-500 hover:shadow-xl active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{#if processing}
@@ -363,6 +558,10 @@
 					<div class="mb-2 flex items-center justify-between">
 						<span class="text-slate-500">Files to merge:</span>
 						<span class="font-medium text-slate-900">{files.length} PDF{files.length === 1 ? '' : 's'}</span>
+					</div>
+					<div class="mb-2 flex items-center justify-between">
+						<span class="text-slate-500">Total pages:</span>
+						<span class="font-medium text-slate-900">{totalPages}</span>
 					</div>
 					<div class="flex items-center justify-between">
 						<span class="text-slate-500">Email:</span>
@@ -440,8 +639,8 @@
 				<div class="mb-4 flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
 					<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
 				</div>
-				<h3 class="mb-1 font-semibold text-slate-900">Unlimited Files</h3>
-				<p class="text-sm leading-relaxed text-slate-500">Merge as many PDFs as you need. No page limits or file restrictions.</p>
+				<h3 class="mb-1 font-semibold text-slate-900">Up to 500 Pages</h3>
+				<p class="text-sm leading-relaxed text-slate-500">Merge as many PDFs as you need, up to 500 pages per merge. No file count restrictions.</p>
 			</div>
 			<!-- Benefit: Works Instantly -->
 			<div class="rounded-xl border border-slate-100 bg-slate-50/50 p-6 transition hover:shadow-md">
@@ -479,7 +678,7 @@
 			<div class="mb-2 text-5xl font-extrabold text-indigo-600">$2.99</div>
 			<p class="mb-8 text-lg text-slate-500">per merge operation</p>
 			<ul class="mb-8 space-y-3 text-left text-sm">
-				{#each ['Unlimited PDF files per merge', 'No subscription or monthly fees', 'Files deleted after download', 'No watermarks or branding', 'Full refund if merge fails'] as item}
+				{#each ['Up to 500 pages per merge', 'No subscription or monthly fees', 'Files deleted after download', 'No watermarks or branding', 'Full refund if merge fails'] as item (item)}
 					<li class="flex items-start gap-2.5">
 						<svg class="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
 						<span class="text-slate-600">{item}</span>
@@ -498,14 +697,14 @@
 		<div class="divide-y divide-slate-200">
 			{#each [
 				{ q: 'How does the PDF merge work?', a: 'Upload 2 or more PDF files and they will be combined into a single PDF in the order you upload them. The merged PDF is available for immediate download after payment.' },
-				{ q: 'Is there a limit on file size or number of files?', a: 'No limits! Merge as many PDF files as you need, regardless of size. The only requirement is that you upload at least 2 PDFs.' },
+				{ q: 'Is there a limit on file size or number of files?', a: 'You can merge as many PDF files as you need, up to 500 total pages per merge. There is no limit on individual file size or number of files.' },
 				{ q: 'What if the merge fails?', a: "Full refund, no questions asked. We'll process it automatically within 24 hours if the merge operation fails." },
 				{ q: 'Do you really delete my files?', a: 'Yes. Your files are deleted from our servers immediately after you download the merged PDF. No backups, no archives, no data retention.' },
 				{ q: 'Can I rearrange the order of my PDFs?', a: 'Yes, the PDFs will be merged in the order they appear in your upload list. You can remove and re-upload files to change the order before payment.' },
 				{ q: 'Do I need to create an account?', a: 'No. No account, no login, no password. Just upload, pay, and download.' },
 				{ q: 'What format is the merged file?', a: 'The output is a standard PDF file that works with all PDF readers and editors.' },
 				{ q: 'Can I merge the same files multiple times?', a: 'Each merge operation costs $2.99. If you need to merge the same files again, simply make another transaction.' }
-			] as faq}
+			] as faq (faq.q)}
 				<div class="py-5">
 					<h3 class="mb-1.5 text-base font-semibold text-slate-900">{faq.q}</h3>
 					<p class="text-sm leading-relaxed text-slate-500">{faq.a}</p>

@@ -6,20 +6,20 @@ import type { RequestHandler } from './$types';
 export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json();
 
-	if (!body.faxNumber || !body.senderName || !body.senderEmail) {
+	if (!body.senderEmail || !body.fileCount) {
 		error(400, 'Missing required fields');
 	}
 
 	const stripe = new Stripe(env.STRIPE_SK!);
 
 	const paymentIntent = await stripe.paymentIntents.create({
-		amount: 399,
+		amount: 299,
 		currency: 'usd',
 		metadata: {
 			productId: env.PRODUCT_ID!,
-			faxNumber: body.faxNumber,
-			senderName: body.senderName,
-			senderEmail: body.senderEmail
+			senderEmail: body.senderEmail,
+			fileCount: String(body.fileCount),
+			totalPages: String(body.totalPages || 0)
 		}
 	});
 
