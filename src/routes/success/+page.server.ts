@@ -1,6 +1,7 @@
 import { env } from '$env/dynamic/private';
 import { error, redirect } from '@sveltejs/kit';
 import Stripe from 'stripe';
+import { sendConfirmationEmail } from '$lib/email';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ url }) => {
@@ -17,8 +18,15 @@ export const load: PageServerLoad = async ({ url }) => {
 		error(400, 'Payment was not completed successfully.');
 	}
 
+	// Fire-and-forget email — don't block page load
+	const senderEmail = paymentIntent.metadata.senderEmail;
+	if (senderEmail) {
+		sendConfirmationEmail(senderEmail).catch(() => {});
+	}
+
 	return {
-		senderEmail: paymentIntent.metadata.senderEmail,
+		paymentIntentId,
+		senderEmail,
 		fileCount: paymentIntent.metadata.fileCount,
 		totalPages: paymentIntent.metadata.totalPages
 	};

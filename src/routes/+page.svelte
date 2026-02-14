@@ -2,12 +2,12 @@
 <script lang="ts">
 	// Imports for file conversion, Stripe checkout, and Svelte lifecycle
 	import { convertImageToPdf } from '$lib/convert-image-to-pdf';
-	import { countPagesPerFile, mergePdfs, MAX_TOTAL_PAGES } from '$lib/merge-pdfs';
+	import { countPagesPerFile, mergePdfs, MAX_TOTAL_PAGES, MAX_TOTAL_SIZE } from '$lib/merge-pdfs';
 	import { loadStripe, type Stripe, type StripeElements } from '@stripe/stripe-js';
 	import { tick } from 'svelte';
 
-	// data.stripePk comes from +page.server.ts load function
-	let { data }: { data: { stripePk: string } } = $props();
+	// data from +page.server.ts: stripePk, priceDisplay (from STRIPE_PRICE_ID)
+	let { data }: { data: { stripePk: string; priceDisplay: string } } = $props();
 
 	// Form state
 	let files: File[] = $state([]);
@@ -33,6 +33,7 @@
 	let merging: boolean = $state(false);
 	let mergedPdfUrl: string = $state('');
 	let mergeComplete: boolean = $state(false);
+	let emailSent: boolean = $state(false);
 
 	// formatFileSize: converts bytes to human-readable string
 	function formatFileSize(bytes: number): string {
@@ -88,6 +89,14 @@
 			}
 
 			files = [...files, ...processed];
+
+			// Validate total file size
+			const newTotalSize = files.reduce((sum, f) => sum + f.size, 0);
+			if (newTotalSize > MAX_TOTAL_SIZE) {
+				formError = `Total file size (${formatFileSize(newTotalSize)}) exceeds the 100 MB limit. Please remove some files.`;
+			} else if (formError.includes('100 MB limit')) {
+				formError = '';
+			}
 		} finally {
 			converting = false;
 		}
@@ -110,6 +119,10 @@
 		if (!senderEmail.trim()) { formError = 'Please enter your email address.'; return; }
 		if (totalPages > MAX_TOTAL_PAGES) {
 			formError = `Total page count (${totalPages}) exceeds the maximum of ${MAX_TOTAL_PAGES} pages. Please remove some files.`;
+			return;
+		}
+		if (totalFileSize > MAX_TOTAL_SIZE) {
+			formError = `Total file size (${formatFileSize(totalFileSize)}) exceeds the 100 MB limit. Please remove some files.`;
 			return;
 		}
 
@@ -181,13 +194,32 @@
 			return;
 		}
 
-		// Payment succeeded - now merge PDFs client-side
+		// Payment succeeded - merge PDFs client-side, upload to server, email + show download
 		if (paymentIntent && paymentIntent.status === 'succeeded') {
 			processing = false;
 			merging = true;
 			try {
 				const mergedBlob = await mergePdfs(files);
 				mergedPdfUrl = URL.createObjectURL(mergedBlob);
+
+				// Upload to server for email delivery; keeps on-screen download available
+				const formData = new FormData();
+				formData.append('file', mergedBlob, 'merged.pdf');
+				formData.append('paymentIntentId', paymentIntent.id);
+				formData.append('senderEmail', senderEmail.trim());
+
+				const uploadRes = await fetch('/api/upload-merged', {
+					method: 'POST',
+					body: formData
+				});
+
+				if (uploadRes.ok) {
+					emailSent = true;
+				} else {
+					const err = await uploadRes.json().catch(() => ({ message: 'Upload failed' }));
+					formError = err.message || 'Merge complete but email delivery failed. Your PDF is ready to download below.';
+				}
+
 				mergeComplete = true;
 			} catch {
 				formError = 'Payment succeeded but PDF merge failed. Please contact support.';
@@ -230,6 +262,7 @@
 		merging = false;
 		mergedPdfUrl = '';
 		mergeComplete = false;
+		emailSent = false;
 	}
 
 	// goBack: resets payment state so user can edit form fields
@@ -246,7 +279,16 @@
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<title>SimpleMergePDF - Merge PDF Files Without Subscription or Tracking</title>
-	<meta name="description" content="Merge unlimited PDF files for $3.99. No subscription, no account, no tracking. Files deleted immediately after processing." />
+	<meta name="description" content="Merge unlimited PDF files for {data.priceDisplay}. No subscription, no account, no tracking. Files deleted immediately after processing." />
+	<meta property="og:type" content="website" />
+	<meta property="og:url" content="https://simplemergepdf.com" />
+	<meta property="og:title" content="SimpleMergePDF - Merge PDF Files Without Subscription or Tracking" />
+	<meta property="og:description" content="Merge unlimited PDF files for {data.priceDisplay}. No subscription, no account, no tracking. Files deleted immediately after processing." />
+	<meta property="og:image" content="https://simplemergepdf.com/logo.png" />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="SimpleMergePDF - Merge PDF Files Without Subscription or Tracking" />
+	<meta name="twitter:description" content="Merge unlimited PDF files for {data.priceDisplay}. No subscription, no account, no tracking." />
+	<meta name="twitter:image" content="https://simplemergepdf.com/logo.png" />
 </svelte:head>
 
 <!-- Hero section -->
@@ -263,7 +305,7 @@
 			Merge PDFs.<br class="hidden sm:block" /> No Subscription.
 		</h1>
 		<p class="mx-auto mb-3 max-w-xl text-lg text-purple-200 sm:text-xl">
-			Just <span class="font-bold text-white">$3.99</span> per merge
+			Just <span class="font-bold text-white">{data.priceDisplay}</span> per merge
 		</p>
 		<p class="mx-auto mb-10 max-w-lg text-base text-purple-300">
 			Upload your PDFs, pay, download. Files are deleted immediately after processing.
@@ -321,7 +363,7 @@
 			<!-- Step 2 -->
 			<div class="text-center">
 				<div class="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-100 text-xl font-bold text-indigo-700">2</div>
-				<h3 class="mb-2 text-lg font-semibold text-slate-900">Pay $3.99</h3>
+				<h3 class="mb-2 text-lg font-semibold text-slate-900">Pay {data.priceDisplay}</h3>
 				<p class="text-sm leading-relaxed text-slate-500">Secure one-time payment. No subscription or hidden fees.</p>
 			</div>
 			<!-- Step 3 -->
@@ -362,7 +404,10 @@
 					<p class="mb-2 text-sm text-slate-500">
 						{files.length} file{files.length === 1 ? '' : 's'} merged successfully ({totalPages} pages total).
 					</p>
-					<p class="mb-8 text-xs text-slate-400">Your merged PDF is ready for download.</p>
+					{#if emailSent}
+						<p class="mb-2 text-sm text-emerald-600">A download link has been sent to <span class="font-medium">{senderEmail}</span>.</p>
+					{/if}
+					<p class="mb-8 text-xs text-slate-400">Download below or use the link in your email.</p>
 
 					<button
 						onclick={downloadMergedPdf}
@@ -385,14 +430,14 @@
 				</div>
 
 			{:else if merging}
-				<!-- Merging in progress -->
+				<!-- Merging and uploading in progress -->
 				<div class="py-12 text-center">
 					<svg class="mx-auto mb-4 h-12 w-12 animate-spin text-purple-600" fill="none" viewBox="0 0 24 24">
 						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
 					</svg>
 					<h3 class="mb-2 text-lg font-semibold text-slate-900">Merging Your PDFs...</h3>
-					<p class="text-sm text-slate-500">This may take a moment depending on file size.</p>
+					<p class="text-sm text-slate-500">Processing up to {MAX_TOTAL_PAGES} pages. This may take a moment for large files.</p>
 				</div>
 
 			{:else if !showPayment}
@@ -479,7 +524,7 @@
 							<span class="text-slate-300">|</span>
 							<span><span class="font-semibold text-slate-800">{totalPages}</span> / {MAX_TOTAL_PAGES} pages</span>
 							<span class="text-slate-300">|</span>
-							<span><span class="font-semibold text-slate-800">{formatFileSize(totalFileSize)}</span> total</span>
+							<span><span class="font-semibold text-slate-800">{formatFileSize(totalFileSize)}</span> / 100 MB</span>
 						</div>
 					{:else}
 						<p class="mt-3 text-xs text-slate-500">
@@ -522,7 +567,7 @@
 				<div class="mb-8 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
 					<div class="flex items-center justify-between">
 						<span class="font-semibold text-slate-700">Total:</span>
-						<span class="text-2xl font-bold text-indigo-700">$3.99</span>
+						<span class="text-2xl font-bold text-indigo-700">{data.priceDisplay}</span>
 					</div>
 					<p class="mt-1 text-xs text-slate-500">One-time payment. No subscription.</p>
 				</div>
@@ -530,7 +575,7 @@
 				<!-- Continue to payment button: validates form and creates PaymentIntent -->
 				<button
 					onclick={continueToPayment}
-					disabled={processing || totalPages > MAX_TOTAL_PAGES || countingPages}
+					disabled={processing || totalPages > MAX_TOTAL_PAGES || totalFileSize > MAX_TOTAL_SIZE || countingPages}
 					class="w-full rounded-xl bg-indigo-600 py-4 text-lg font-bold text-white shadow-lg transition hover:bg-indigo-500 hover:shadow-xl active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{#if processing}
@@ -573,7 +618,7 @@
 				<div class="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
 					<div class="flex items-center justify-between">
 						<span class="font-semibold text-slate-700">Total:</span>
-						<span class="text-2xl font-bold text-indigo-700">$3.99</span>
+						<span class="text-2xl font-bold text-indigo-700">{data.priceDisplay}</span>
 					</div>
 				</div>
 
@@ -597,7 +642,7 @@
 							Processing payment...
 						</span>
 						{:else}
-						Pay $3.99
+						Pay {data.priceDisplay}
 					{/if}
 				</button>
 
@@ -624,7 +669,7 @@
 					<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
 				</div>
 				<h3 class="mb-1 font-semibold text-slate-900">No Subscription</h3>
-				<p class="text-sm leading-relaxed text-slate-500">One-time payment of $3.99. No recurring charges, no auto-renewal.</p>
+				<p class="text-sm leading-relaxed text-slate-500">One-time payment of {data.priceDisplay}. No recurring charges, no auto-renewal.</p>
 			</div>
 			<!-- Benefit: Complete Privacy -->
 			<div class="rounded-xl border border-slate-100 bg-slate-50/50 p-6 transition hover:shadow-md">
@@ -664,7 +709,7 @@
 					<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
 				</div>
 				<h3 class="mb-1 font-semibold text-slate-900">Transparent Pricing</h3>
-				<p class="text-sm leading-relaxed text-slate-500">$3.99 flat. No hidden fees, no surprise charges.</p>
+				<p class="text-sm leading-relaxed text-slate-500">{data.priceDisplay} flat. No hidden fees, no surprise charges.</p>
 			</div>
 		</div>
 	</div>
@@ -675,7 +720,7 @@
 	<div class="mx-auto max-w-lg text-center">
 		<h2 class="mb-8 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Simple, Honest Pricing</h2>
 		<div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl sm:p-12">
-			<div class="mb-2 text-5xl font-extrabold text-indigo-600">$3.99</div>
+			<div class="mb-2 text-5xl font-extrabold text-indigo-600">{data.priceDisplay}</div>
 			<p class="mb-8 text-lg text-slate-500">per merge operation</p>
 			<ul class="mb-8 space-y-3 text-left text-sm">
 				{#each ['Up to 500 pages per merge', 'No subscription or monthly fees', 'Files deleted after download', 'No watermarks or branding', 'Full refund if merge fails'] as item (item)}
@@ -703,7 +748,7 @@
 				{ q: 'Can I rearrange the order of my PDFs?', a: 'Yes, the PDFs will be merged in the order they appear in your upload list. You can remove and re-upload files to change the order before payment.' },
 				{ q: 'Do I need to create an account?', a: 'No. No account, no login, no password. Just upload, pay, and download.' },
 				{ q: 'What format is the merged file?', a: 'The output is a standard PDF file that works with all PDF readers and editors.' },
-				{ q: 'Can I merge the same files multiple times?', a: 'Each merge operation costs $3.99. If you need to merge the same files again, simply make another transaction.' }
+				{ q: 'Can I merge the same files multiple times?', a: `Each merge operation costs ${data.priceDisplay}. If you need to merge the same files again, simply make another transaction.` }
 			] as faq (faq.q)}
 				<div class="py-5">
 					<h3 class="mb-1.5 text-base font-semibold text-slate-900">{faq.q}</h3>
@@ -718,7 +763,7 @@
 <section class="bg-gradient-to-br from-indigo-950 to-indigo-800 px-4 py-20 text-white">
 	<div class="mx-auto max-w-3xl text-center">
 		<h2 class="mb-4 text-3xl font-bold sm:text-4xl">Ready to Merge Your PDFs?</h2>
-		<p class="mb-10 text-lg text-indigo-200">No account. No subscription. No tracking. Just $3.99.</p>
+		<p class="mb-10 text-lg text-indigo-200">No account. No subscription. No tracking. Just {data.priceDisplay}.</p>
 		<a
 			href="#merge-pdf"
 			class="inline-block rounded-xl bg-white px-8 py-4 text-lg font-bold text-indigo-900 shadow-xl transition hover:bg-indigo-50 hover:shadow-2xl"
@@ -731,6 +776,6 @@
 <!-- Sticky mobile CTA bar -->
 <div class="fixed inset-x-0 bottom-0 z-50 border-t border-indigo-200 bg-white/95 p-3 shadow-lg backdrop-blur-sm md:hidden">
 	<a href="#merge-pdf" class="block w-full rounded-lg bg-indigo-600 py-3 text-center font-bold text-white transition hover:bg-indigo-500">
-		Merge PDFs - $3.99
+		Merge PDFs - {data.priceDisplay}
 	</a>
 </div>
