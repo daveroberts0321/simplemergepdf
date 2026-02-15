@@ -38,6 +38,7 @@
 				<img src="/logo.png" alt="SimpleMergePDF Logo" class="mb-3 h-16" />
 				<p class="text-sm leading-relaxed">Merge PDFs without the hassle. No subscription, no tracking, no BS.</p>
 			</div>
+			
 			<!-- Contact -->
 			<div>
 				<h3 class="mb-3 text-sm font-semibold uppercase tracking-wider text-white">Contact</h3>
@@ -51,6 +52,7 @@
 					<li><a href="/privacy-policy" class="transition hover:text-white">Privacy Policy</a></li>
 					<li><a href="/terms-of-service" class="transition hover:text-white">Terms of Service</a></li>
 					<li><a href="/refund-policy" class="transition hover:text-white">Refund Policy</a></li>
+					<li><a href="/other-services" class="transition hover:text-white">Other SimpleSaaS Services</a></li>
 				</ul>
 			</div>
 		</div>
@@ -60,3 +62,4 @@
 		</div>
 	</div>
 </footer>
+<a href="/other-services" class="text-sm transition hover:text-white">Other SimpleSaaS Services</a>
