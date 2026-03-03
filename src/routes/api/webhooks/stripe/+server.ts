@@ -2,8 +2,9 @@ import { env } from '$env/dynamic/private';
 import Stripe from 'stripe';
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { createLogger } from '$lib/server/logger';
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
 	const stripe = new Stripe(env.STRIPE_SK!);
 	const signature = request.headers.get('stripe-signature');
 
@@ -27,6 +28,12 @@ export const POST: RequestHandler = async ({ request }) => {
 			amount: paymentIntent.amount,
 			currency: paymentIntent.currency,
 			email: paymentIntent.metadata.senderEmail
+		});
+		const log = createLogger(platform?.env, 'simplemergepdf');
+		log.event('stripe_payment', null, null, {
+			amountCents: paymentIntent.amount,
+			paymentIntentId: paymentIntent.id,
+			email: paymentIntent.metadata.senderEmail,
 		});
 	}
 
