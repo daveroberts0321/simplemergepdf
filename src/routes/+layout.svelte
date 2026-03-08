@@ -1,7 +1,26 @@
 <!-- Root layout: provides global header, footer, and base styles -->
 <script lang="ts">
 	import './layout.css';
-	let { children } = $props();
+	import { onMount } from 'svelte';
+	import posthog from 'posthog-js';
+	import { browser } from '$app/environment';
+	import type { LayoutData } from './$types';
+
+	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
+
+	// PostHog init (client-only) + Websites group analytics — defaults to ORIGIN
+	onMount(() => {
+		const key = data.posthogKey;
+		if (browser && key) {
+			posthog.init(key, { api_host: data.posthogHost || 'https://us.i.posthog.com' });
+			if (data.posthogAppId && typeof posthog?.group === 'function') {
+				posthog.group('Websites', data.posthogAppId, {
+					name: data.posthogAppName || data.posthogAppId,
+					url: data.posthogAppUrl || ''
+				});
+			}
+		}
+	});
 </script>
 
 <svelte:head>
